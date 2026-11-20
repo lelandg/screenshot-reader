@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-20
+
+- New `visual-inspector` agent (Sonnet) for questions about how a screen looks. Visual questions now reliably go to it instead of the Haiku text reader.
+
 ## [0.2.0] - 2026-11-20
 
 - Visual questions about screenshots (rendering bugs, colors, layout) now go to a Sonnet reader. Text questions stay on Haiku.

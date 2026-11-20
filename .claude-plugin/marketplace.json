@@ -12,7 +12,7 @@
       "name": "screenshot-reader",
       "source": "./",
       "description": "Keeps screenshots out of your expensive coding model's context: a cheap subagent (Haiku for text, Sonnet for visual questions) reads each image and returns exact text.",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "author": {
         "name": "Leland Green"
       },
