@@ -1,0 +1,10 @@
+/.github/             @lelandg
+/Scripts/githooks/    @lelandg
+/hooks/               @lelandg
+/.gitleaksignore      @lelandg
+/.gitleaks.toml       @lelandg
+/.npmrc               @lelandg
+/.coderabbit.yaml     @lelandg
+/.greptile/           @lelandg
+osv-scanner.toml      @lelandg
+/.snyk                @lelandg

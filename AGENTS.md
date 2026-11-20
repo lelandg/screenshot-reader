@@ -8,8 +8,7 @@ A Claude Code plugin. A subagent (`agents/screenshot-reader.md`) reads images
 for the main model and returns exact text. It runs on Haiku by default; the
 skill (`skills/read-screenshot/SKILL.md`) tells the main model to delegate and
 to override the model to Sonnet for visual-judgment questions (rendering,
-color, layout). A
-`PreToolUse` hook (`hooks/guard-image-read.js`) blocks main-thread image
+color, layout). A `PreToolUse` hook (`hooks/guard-image-read.js`) blocks main-thread image
 reads. `bench/bench.py` measures the token effect.
 
 ## Gates before a commit
@@ -21,8 +20,26 @@ claude plugin validate .
 ```
 
 CI (`.github/workflows/ci.yml`) runs the first two on Ubuntu and Windows,
-along with a manifest check and an LF check. `security.yml` runs gitleaks,
-osv-scanner and zizmor.
+along with a manifest check and an LF check. `security.yml` and
+`githooks.yml` come from
+[secure-repo-template](https://github.com/Chameleon-Labs-LLC/secure-repo-template)
+(adopted at `180c76a`). They run gitleaks, osv-scanner, zizmor, npm audit
+(which skips, since there is no lockfile), the git-hook tests and shellcheck.
+
+## Security rules
+
+(From secure-repo-template. Keep them.)
+
+- How the setup works, and why: `docs/security-setup.md`. Read it before changing `Scripts/githooks/`, `.github/`, `.npmrc`, `.coderabbit.yaml` or `.greptile/config.json`.
+- Repository settings, when a PR may merge, and how to handle each kind of finding: `docs/agent-guide.md`.
+- Never commit secrets. Keep them in a gitignored `.env` file and commit an `.env.example` with placeholders.
+- Never use `git commit --no-verify` or `GITLEAKS_DEGRADED_OK=1` without telling the human why.
+- Never add a suppression (`.gitleaksignore` entry, `gitleaks:allow` comment, osv-scanner ignore, `.snyk` ignore) to make a check pass. Report the finding instead.
+- Never use the `pull_request_target` trigger. Pin every action to a full commit SHA.
+- When a vulnerability with a fixed version is reported, apply the lowest version that fixes it, even if that version is newer than the 7-day package-age floor.
+- Git-hook changes: `sh Scripts/githooks/test-pre-commit.sh`, then `shellcheck -s sh -x --severity=warning` on the changed scripts. The hooks must stay POSIX `sh`.
+- **Solo maintainer:** the default-branch ruleset requires a PR and green checks, and code-owner review for the paths in `.github/CODEOWNERS`. The owner merges through an admin bypass, so the local fail-closed gitleaks hook is the gate that stops a secret before it is pushed. Every machine that commits here must have it installed.
+- AI reviewers: CodeRabbit (free on this public repo) and Greptile (`effort: base`). Wait for their review before merging.
 
 ## Rules
 
