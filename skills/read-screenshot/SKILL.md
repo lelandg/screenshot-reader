@@ -28,6 +28,23 @@ and hand you exact text instead. So: **do not Read image files yourself.**
 4. If the report is unclear or misses something, ask the reader again with a
    narrower question rather than opening the image yourself.
 
+## Pick the reader's model by the question
+
+The agent defaults to Haiku. Pass `model` on the Agent call to override it:
+
+- **Haiku (default):** reading text — error messages, logs, stack traces,
+  code, form values, chat transcripts, table contents.
+- **Sonnet (`model: "sonnet"`):** visual judgment — rendering bugs, colors
+  that look wrong, overlays or highlights blending badly, misalignment,
+  clipping, "what looks off here?". In testing, Haiku hedged on a subtle
+  blend-mode bug in thumbnail-sized images, while Sonnet located every
+  affected region and described exactly how it differed. Sonnet is still far
+  cheaper than loading the image into a large main model.
+
+Small embedded images (an attachment inside a chat screenshot, a thumbnail)
+limit any reader. If the question depends on fine detail, ask the user for the
+full-size image.
+
 Several images that need the same question can go in one dispatch. Images
 needing different questions can go to parallel dispatches.
 
