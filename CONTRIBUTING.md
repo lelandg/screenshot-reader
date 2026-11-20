@@ -28,7 +28,8 @@ Open an issue. Say what you expected, what happened, and how to reproduce it. Fo
    ```
 
    ```bash
-   shellcheck -s sh -x --severity=warning Scripts/githooks/<each script you changed>
+   # list every script you changed, for example:
+   shellcheck -s sh -x --severity=warning Scripts/githooks/pre-commit Scripts/githooks/_lib.sh
    ```
 
 5. Open a pull request against `main` and describe what changed and why.
