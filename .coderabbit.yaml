@@ -124,3 +124,23 @@ reviews:
         Do not report: wording, tone, hedging, redundancy, heading style,
         formatting, or the strength of a stated estimate. If the only change
         you would make is how something is phrased, say nothing.
+
+        Exception for this repo: the restriction above does NOT apply to
+        agents/**/*.md and skills/**/SKILL.md (see the next entries).
+
+    - path: "agents/**/*.md"
+      instructions: |
+        Shipped product behavior, not documentation: this is the system prompt
+        and frontmatter of a Claude Code subagent that users install. Review
+        it fully: correctness of the procedure, tool and model frontmatter,
+        prompt-injection handling of text inside images, secret redaction,
+        and whether its output format matches what skills/read-screenshot
+        expects.
+
+    - path: "skills/**/SKILL.md"
+      instructions: |
+        Shipped product behavior, not documentation: Claude Code loads this
+        skill and follows it. Review it fully: whether its trigger description
+        fires when it should, whether each step can be carried out with the
+        tools and agent names this plugin actually provides, and whether it
+        agrees with hooks/guard-image-read.js and agents/screenshot-reader.md.

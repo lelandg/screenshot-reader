@@ -38,13 +38,13 @@ along with a manifest check and an LF check. `security.yml` and
 - Never use the `pull_request_target` trigger. Pin every action to a full commit SHA.
 - When a vulnerability with a fixed version is reported, apply the lowest version that fixes it, even if that version is newer than the 7-day package-age floor.
 - Git-hook changes: `sh Scripts/githooks/test-pre-commit.sh`, then `shellcheck -s sh -x --severity=warning` on the changed scripts. The hooks must stay POSIX `sh`.
-- **Solo maintainer:** the default-branch ruleset requires a PR and green checks, and code-owner review for the paths in `.github/CODEOWNERS`. The owner merges through an admin bypass, so the local fail-closed gitleaks hook is the gate that stops a secret before it is pushed. Every machine that commits here must have it installed.
+- **Solo maintainer:** the default-branch ruleset requires a PR, green checks, and code-owner review for the paths in `.github/CODEOWNERS`. An agent never uses an admin bypass (`docs/agent-guide.md` section 8). A PR that touches a code-owned path therefore waits for the owner, who merges it himself through his admin bypass; tell him so in the PR. Every other PR merges on the gates. Because the owner's bypass skips the checks as gates, the local fail-closed gitleaks hook is what stops a secret before it is pushed, and every machine that commits here must have it installed.
 - AI reviewers: CodeRabbit (free on this public repo) and Greptile (`effort: base`). Wait for their review before merging.
 
 ## Rules
 
-- **Every change reaches `main` through a PR**, so CodeRabbit reviews it.
-  Non-functional edits (README, docs) may go straight to `main`.
+- **Every change reaches `main` through a PR**, so CodeRabbit reviews it,
+  docs included: the ruleset blocks direct pushes, and agents don't bypass it.
 - `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` carry the
   same `version`. CI fails if they differ. The version is bumped when a PR
   lands, never by hand in a PR.
