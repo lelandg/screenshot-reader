@@ -38,8 +38,8 @@ The agent defaults to Haiku. Pass `model` on the Agent call to override it:
   that look wrong, overlays or highlights blending badly, misalignment,
   clipping, "what looks off here?". In testing, Haiku hedged on a subtle
   blend-mode bug in thumbnail-sized images, while Sonnet located every
-  affected region and described exactly how it differed. Sonnet is still far
-  cheaper than loading the image into a large main model.
+  affected region and described exactly how it differed. It still keeps the
+  image out of the main model's context; only its text report comes back.
 
 Small embedded images (an attachment inside a chat screenshot, a thumbnail)
 limit any reader. If the question depends on fine detail, ask the user for the

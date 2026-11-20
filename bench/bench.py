@@ -102,7 +102,9 @@ def run(label: str, prompt: str, mode: str, model: str, stem: str) -> dict:
             for block in content if isinstance(content, list) else []:
                 if (block.get("type") == "tool_result"
                         and block.get("tool_use_id") in read_requests
-                        and not block.get("is_error")):
+                        and not block.get("is_error")
+                        and any(isinstance(c, dict) and c.get("type") == "image"
+                                for c in block.get("content") or [])):
                     direct_reads += 1
         if ev.get("type") == "assistant" and ev.get("parent_tool_use_id") is None:
             msg = ev["message"]
