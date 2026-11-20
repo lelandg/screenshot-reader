@@ -1,6 +1,6 @@
 ---
 name: read-screenshot
-description: Use whenever you need to know what is in a screenshot or other image file (png, jpg, jpeg, gif, webp) — a user says "look at the screenshot", "see the error in this image", "check _screenshots", names an image path, or you would otherwise Read an image. Delegates the viewing to the cheap screenshot-reader subagent (Haiku) and works from its text report, so the main model never loads image tokens into its context.
+description: Use whenever you need to know what is in a screenshot or other image file (png, jpg, jpeg, gif, webp) — a user says "look at the screenshot", "see the error in this image", "check _screenshots", names an image path, or you would otherwise Read an image. Delegates the viewing to a cheap subagent (screenshot-reader on Haiku for text, visual-inspector on Sonnet for how things look) and works from its text report, so the main model never loads image tokens into its context.
 ---
 
 # Read screenshots through a cheap subagent
@@ -15,8 +15,10 @@ and hand you exact text instead. So: **do not Read image files yourself.**
    screenshot" (singular), use the newest image by modified time in the folder
    they mean (`_screenshots`, the project's screenshot folder, or the path they
    gave).
-2. Dispatch the `screenshot-reader` agent (from this plugin it is
-   `screenshot-reader:screenshot-reader`) with the Agent tool. In the prompt:
+2. Dispatch the right agent with the Agent tool (see "Pick the agent by the
+   question" below): `screenshot-reader:visual-inspector` for anything about
+   how it looks, `screenshot-reader:screenshot-reader` for reading text. In the
+   prompt:
    - the absolute path(s), one per line;
    - the exact question you need answered ("what is the full error text and
      which file/line does the stack trace point to?", "is the Save button
@@ -28,18 +30,28 @@ and hand you exact text instead. So: **do not Read image files yourself.**
 4. If the report is unclear or misses something, ask the reader again with a
    narrower question rather than opening the image yourself.
 
-## Pick the reader's model by the question
+## Pick the agent by the question
 
-The agent defaults to Haiku. Pass `model` on the Agent call to override it:
+Two agents, chosen by name:
 
-- **Haiku (default):** reading text — error messages, logs, stack traces,
-  code, form values, chat transcripts, table contents.
-- **Sonnet (`model: "sonnet"`):** visual judgment — rendering bugs, colors
-  that look wrong, overlays or highlights blending badly, misalignment,
-  clipping, "what looks off here?". In testing, Haiku hedged on a subtle
-  blend-mode bug in thumbnail-sized images, while Sonnet located every
-  affected region and described exactly how it differed. It still keeps the
-  image out of the main model's context; only its text report comes back.
+- **`screenshot-reader:screenshot-reader` (Haiku): reading text.** Error
+  messages, logs, stack traces, code, form values, chat transcripts, table
+  contents.
+- **`screenshot-reader:visual-inspector` (Sonnet): visual judgment.**
+  Rendering bugs, colors that look wrong, overlays or highlights blending
+  badly, misalignment, clipping, before/after comparisons, and "is this
+  rendering correctly?" / "what looks off?". Use it for **any** question
+  about how something looks, even when the user doesn't say "bug".
+
+In testing, Haiku missed or hedged on a subtle highlight-blending bug in
+thumbnail-sized images, and described it differently on each run. Sonnet
+located every affected region and how it differed. Both keep the image out of
+your context; only the text report comes back.
+
+**Verifying a visual fix:** don't claim a rendering bug is fixed from code
+alone. Give the visual-inspector the before and after images and ask whether
+the problem region changed. Prefer a deterministic check where you can write
+one, such as a pixel diff or a test that samples the colors in question.
 
 Small embedded images (an attachment inside a chat screenshot, a thumbnail)
 limit any reader. If the question depends on fine detail, ask the user for the
