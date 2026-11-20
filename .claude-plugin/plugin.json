@@ -1,6 +1,6 @@
 {
   "name": "screenshot-reader",
-  "description": "Keeps screenshots out of your expensive coding model's context. A cheap Haiku subagent reads each image and returns exact text (errors, code, UI state, layout); a skill tells the main model to delegate, and an optional hook enforces it.",
+  "description": "Keeps screenshots out of your expensive coding model's context. A cheap subagent reads each image and returns exact text (errors, code, UI state, layout): Haiku for text questions, Sonnet for visual-judgment questions. A skill tells the main model to delegate, and a hook enforces it.",
   "version": "0.2.0",
   "author": {
     "name": "Leland Green",
