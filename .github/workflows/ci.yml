@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Hook tests (runner's preinstalled Node)
+        run: node --test tests/guard-image-read.test.js
+      - name: Benchmark script compiles
+        run: python -m py_compile bench/bench.py
+      - name: Manifests parse and agree
+        shell: bash
+        run: |
+          python - <<'EOF'
+          import json, sys
+          pj = json.load(open('.claude-plugin/plugin.json'))
+          mp = json.load(open('.claude-plugin/marketplace.json'))
+          hooks = json.load(open('hooks/hooks.json'))
+          entry = next(p for p in mp['plugins'] if p['name'] == pj['name'])
+          errors = []
+          if entry.get('version') != pj.get('version'):
+              errors.append(f"version mismatch: plugin.json={pj.get('version')} marketplace={entry.get('version')}")
+          if 'PreToolUse' not in hooks.get('hooks', {}):
+              errors.append('hooks.json has no PreToolUse hook')
+          for e in errors:
+              print('ERROR:', e)
+          sys.exit(1 if errors else 0)
+          EOF
+
+  line-endings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: No CRLF in the index
+        run: |
+          bad="$(git ls-files --eol | awk '$1 == "i/crlf" || $1 == "i/mixed" {print $NF}')"
+          if [ -n "$bad" ]; then echo "CRLF files in the index:"; echo "$bad"; exit 1; fi
+          echo "all tracked text files are LF"
