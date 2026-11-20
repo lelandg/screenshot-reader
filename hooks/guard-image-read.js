@@ -16,7 +16,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|tiff?|heic)$/i;
+// Only formats the Read tool returns as visual content.
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
 const OVERRIDE_FILE = path.join(os.homedir(), ".claude", "screenshot-reader-allow-direct");
 const OVERRIDE_TTL_MS = 10 * 60 * 1000;
 

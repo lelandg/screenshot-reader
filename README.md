@@ -25,9 +25,11 @@ screenshots.** It needs the words on them.
   minutes. To turn the guard off for a whole session, start Claude Code with
   `SCREENSHOT_READER_ALLOW_DIRECT=1`.
 - It needs **Node.js** on your `PATH`. If Node is missing, the hook fails, and
-  on Windows without Git Bash a failing hook can block every `Read`. If you
-  don't have Node, disable the hook from `/plugin` and keep the agent and
-  skill, which work without it.
+  on Windows without Git Bash a failing hook can block every `Read`. The best
+  fix is to install Node. Otherwise, `"disableAllHooks": true` in
+  `~/.claude/settings.json` turns off this hook while the agent and skill keep
+  working, but it also turns off every other hook you have. Disabling the
+  plugin from `/plugin` turns off the agent and skill too.
 
 ## Install
 
@@ -99,6 +101,29 @@ What this shows:
   long structured report and *lost* on every single-image test, adding 2,800
   to 3,800 tokens. Trimming the report to "answer plus only the text the
   question needs" brought it to break-even. Ask narrow questions.
+
+### Fine visual detail: a real bug report
+
+Tested on a Discord screenshot in which a user reports a highlight-tool bug:
+grey text gets "stained" and parts of an image darken. The evidence is two
+thumbnail attachments, about 340 px square.
+
+- **Transcription (Haiku):** the message text matched direct viewing word for
+  word. On the first pass it missed one line under the attachment. A
+  follow-up question in the same session re-dispatched the reader, and it
+  caught that line.
+- **"Where is the bug visible?" (Haiku):** it hedged. It pointed to the
+  right regions but would not commit at that size.
+- **Same question (Sonnet reader):** it found both effects. Mid-grey text and
+  bars were tinted lilac while white text kept its color, and the darkening
+  had the highlight rectangle's straight edges. It concluded the highlight is
+  blended on top of the pixels (multiply-like) rather than drawn behind
+  them.
+
+So the skill sends text questions to Haiku and visual-judgment questions to
+Sonnet. You can ask follow-up questions at any time: the main model sends
+the reader back with a narrower question instead of opening the image
+itself.
 
 Total dollar cost per run is in `bench/results/summary*.json` when you run the
 benchmark yourself. It is dominated by prompt-cache state (which run warmed

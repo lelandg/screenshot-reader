@@ -1,6 +1,6 @@
 ---
 name: read-screenshot
-description: Use whenever you need to know what is in a screenshot or other image file (png, jpg, jpeg, gif, webp, bmp) — a user says "look at the screenshot", "see the error in this image", "check _screenshots", names an image path, or you would otherwise Read an image. Delegates the viewing to the cheap screenshot-reader subagent (Haiku) and works from its text report, so the main model never loads image tokens into its context.
+description: Use whenever you need to know what is in a screenshot or other image file (png, jpg, jpeg, gif, webp) — a user says "look at the screenshot", "see the error in this image", "check _screenshots", names an image path, or you would otherwise Read an image. Delegates the viewing to the cheap screenshot-reader subagent (Haiku) and works from its text report, so the main model never loads image tokens into its context.
 ---
 
 # Read screenshots through a cheap subagent
@@ -27,6 +27,23 @@ and hand you exact text instead. So: **do not Read image files yourself.**
    the codebase for the exact error string, the file path, the line number).
 4. If the report is unclear or misses something, ask the reader again with a
    narrower question rather than opening the image yourself.
+
+## Pick the reader's model by the question
+
+The agent defaults to Haiku. Pass `model` on the Agent call to override it:
+
+- **Haiku (default):** reading text — error messages, logs, stack traces,
+  code, form values, chat transcripts, table contents.
+- **Sonnet (`model: "sonnet"`):** visual judgment — rendering bugs, colors
+  that look wrong, overlays or highlights blending badly, misalignment,
+  clipping, "what looks off here?". In testing, Haiku hedged on a subtle
+  blend-mode bug in thumbnail-sized images, while Sonnet located every
+  affected region and described exactly how it differed. It still keeps the
+  image out of the main model's context; only its text report comes back.
+
+Small embedded images (an attachment inside a chat screenshot, a thumbnail)
+limit any reader. If the question depends on fine detail, ask the user for the
+full-size image.
 
 Several images that need the same question can go in one dispatch. Images
 needing different questions can go to parallel dispatches.
