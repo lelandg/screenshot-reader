@@ -1,6 +1,6 @@
 ---
 name: read-screenshot
-description: Use whenever you need to know what is in a screenshot or other image file (png, jpg, jpeg, gif, webp, bmp) — a user says "look at the screenshot", "see the error in this image", "check _screenshots", names an image path, or you would otherwise Read an image. Delegates the viewing to the cheap screenshot-reader subagent (Haiku) and works from its text report, so the main model never loads image tokens into its context.
+description: Use whenever you need to know what is in a screenshot or other image file (png, jpg, jpeg, gif, webp) — a user says "look at the screenshot", "see the error in this image", "check _screenshots", names an image path, or you would otherwise Read an image. Delegates the viewing to the cheap screenshot-reader subagent (Haiku) and works from its text report, so the main model never loads image tokens into its context.
 ---
 
 # Read screenshots through a cheap subagent

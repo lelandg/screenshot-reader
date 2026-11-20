@@ -39,7 +39,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "bench" / "results"
 PLUGIN_ID = "screenshot-reader@screenshot-reader"
-IMAGE_EXT = re.compile(r"\.(png|jpe?g|gif|webp|bmp|tiff?|heic)$", re.I)
+IMAGE_EXT = re.compile(r"\.(png|jpe?g|gif|webp)$", re.I)
 
 BATCH_PROMPT = (
     "Here are {n} screenshots:\n{paths}\nWhich of them shows an error, a warning or a "
@@ -89,13 +89,21 @@ def run(label: str, prompt: str, mode: str, model: str, stem: str) -> dict:
     main_calls: list[dict] = []  # usage of each main-thread API call, in order
     seen_ids: set[str] = set()
     result: dict = {}
-    direct_reads = 0
+    read_requests: set[str] = set()  # main-thread image Read tool_use ids
+    direct_reads = 0  # of those, reads that delivered the image (not denied)
     dispatches = 0
     for line in proc.stdout.splitlines():
         try:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if ev.get("type") == "user" and ev.get("parent_tool_use_id") is None:
+            content = (ev.get("message") or {}).get("content")
+            for block in content if isinstance(content, list) else []:
+                if (block.get("type") == "tool_result"
+                        and block.get("tool_use_id") in read_requests
+                        and not block.get("is_error")):
+                    direct_reads += 1
         if ev.get("type") == "assistant" and ev.get("parent_tool_use_id") is None:
             msg = ev["message"]
             for block in msg.get("content", []):
@@ -103,7 +111,7 @@ def run(label: str, prompt: str, mode: str, model: str, stem: str) -> dict:
                     continue
                 inp = block.get("input", {})
                 if block.get("name") == "Read" and IMAGE_EXT.search(inp.get("file_path", "")):
-                    direct_reads += 1
+                    read_requests.add(block.get("id"))
                 if block.get("name") == "Agent" and "screenshot-reader" in inp.get("subagent_type", ""):
                     dispatches += 1
             # one API response arrives as several events (one per content block)

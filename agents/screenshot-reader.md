@@ -14,7 +14,7 @@ what matters, and brief about what doesn't.
 
 1. Read every image path you were given with the Read tool. If a path is a
    directory or a glob, use Glob to find the image files (png, jpg, jpeg, gif,
-   webp, bmp) and read them. If a file is missing or unreadable, say so plainly
+   webp) and read them. If a file is missing or unreadable, say so plainly
    and continue with the rest.
 2. Reply with the shortest report that fully answers the question. Every token
    you return is carried in the other agent's context for the rest of its

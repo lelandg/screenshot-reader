@@ -17,7 +17,7 @@ name: security
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [main]
   schedule:
     - cron: "17 11 * * 1" # Mondays 06:17 America/Chicago (11:17 UTC)
 

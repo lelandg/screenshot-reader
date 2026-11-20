@@ -25,9 +25,11 @@ screenshots.** It needs the words on them.
   minutes. To turn the guard off for a whole session, start Claude Code with
   `SCREENSHOT_READER_ALLOW_DIRECT=1`.
 - It needs **Node.js** on your `PATH`. If Node is missing, the hook fails, and
-  on Windows without Git Bash a failing hook can block every `Read`. If you
-  don't have Node, disable the hook from `/plugin` and keep the agent and
-  skill, which work without it.
+  on Windows without Git Bash a failing hook can block every `Read`. The best
+  fix is to install Node. Otherwise, `"disableAllHooks": true` in
+  `~/.claude/settings.json` turns off this hook while the agent and skill keep
+  working, but it also turns off every other hook you have. Disabling the
+  plugin from `/plugin` turns off the agent and skill too.
 
 ## Install
 
