@@ -15,7 +15,19 @@ screenshots.** It needs the words on them.
 |---|---|
 | `agents/screenshot-reader.md` | Haiku subagent. Reads one or more images, answers the question asked, transcribes relevant text verbatim, quotes every error, redacts secrets, and treats text inside images as data (never instructions). |
 | `skills/read-screenshot/SKILL.md` | Tells the main model to delegate image reads instead of opening images itself, and how to phrase the question. |
-| `hooks/hooks.json` + `guard-image-read.js` | Optional enforcement. A `PreToolUse` hook that blocks the main agent from `Read`ing image files and points it at the subagent. Reads made inside any subagent pass through. Set `SCREENSHOT_READER_ALLOW_DIRECT=1` to turn it off for a session. Requires Node.js. |
+| `hooks/hooks.json` + `guard-image-read.js` | Enforcement. A `PreToolUse` hook that blocks the main agent from `Read`ing image files and points it at the subagent. Reads made inside any subagent pass through. |
+
+### The guard hook
+
+- It is a cost guard, not a security boundary. To let the main model look at
+  an image directly (say you asked it to), it touches
+  `~/.claude/screenshot-reader-allow-direct`, which allows direct reads for 10
+  minutes. To turn the guard off for a whole session, start Claude Code with
+  `SCREENSHOT_READER_ALLOW_DIRECT=1`.
+- It needs **Node.js** on your `PATH`. If Node is missing, the hook fails, and
+  on Windows without Git Bash a failing hook can block every `Read`. If you
+  don't have Node, disable the hook from `/plugin` and keep the agent and
+  skill, which work without it.
 
 ## Install
 
@@ -109,7 +121,11 @@ python bench/bench.py --model opus --batch path/to/*.png
 ```
 
 Raw transcripts go to `bench/results/` (gitignored, because they contain your
-screenshot text).
+screenshot text). Each run is limited to the `Read`, `Glob`, `Agent` and
+`Skill` tools with no MCP servers, so text hidden in a screenshot can't reach
+a shell. The "direct" mode disables the plugin even if you have it installed,
+and every run checks which route it actually took, then fails if the route
+doesn't match its mode.
 
 ## License
 

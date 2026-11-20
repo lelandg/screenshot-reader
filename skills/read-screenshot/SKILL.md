@@ -38,6 +38,12 @@ directly, or when the reader has failed twice on the same question (for
 example, a fine visual-design judgment it keeps getting wrong). Say that you
 are doing so and why.
 
+This plugin's hook blocks direct image reads by the main agent. To make an
+allowed exception, write an empty file at
+`~/.claude/screenshot-reader-allow-direct` (it unlocks direct reads for 10
+minutes), then Read the image. The user can also start Claude Code with
+`SCREENSHOT_READER_ALLOW_DIRECT=1` to turn the guard off for the session.
+
 ## Pasted images
 
 An image pasted straight into the chat is already in your context; this skill
