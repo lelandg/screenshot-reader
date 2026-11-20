@@ -33,13 +33,13 @@ along with a manifest check and an LF check. `security.yml` and
 - How the setup works, and why: `docs/security-setup.md`. Read it before changing `Scripts/githooks/`, `.github/`, `.npmrc`, `.coderabbit.yaml` or `.greptile/config.json`.
 - Repository settings, when a PR may merge, and how to handle each kind of finding: `docs/agent-guide.md`.
 - Never commit secrets. Keep them in a gitignored `.env` file and commit an `.env.example` with placeholders.
-- Never use `git commit --no-verify` or `GITLEAKS_DEGRADED_OK=1` without telling the human why.
+- Never use `git commit --no-verify`. Never set `GITLEAKS_DEGRADED_OK=1` without telling the human why (it passes one degraded scan, never a finding).
 - Never add a suppression (`.gitleaksignore` entry, `gitleaks:allow` comment, osv-scanner ignore, `.snyk` ignore) to make a check pass. Report the finding instead.
 - Never use the `pull_request_target` trigger. Pin every action to a full commit SHA.
 - When a vulnerability with a fixed version is reported, apply the lowest version that fixes it, even if that version is newer than the 7-day package-age floor.
 - Git-hook changes: `sh Scripts/githooks/test-pre-commit.sh`, then `shellcheck -s sh -x --severity=warning` on the changed scripts. The hooks must stay POSIX `sh`.
 - **Solo maintainer:** the default-branch ruleset requires a PR, green checks, and code-owner review for the paths in `.github/CODEOWNERS`. An agent never uses an admin bypass (`docs/agent-guide.md` section 8). A PR that touches a code-owned path therefore waits for the owner, who merges it himself through his admin bypass; tell him so in the PR. Every other PR merges on the gates. Because the owner's bypass skips the checks as gates, the local fail-closed gitleaks hook is what stops a secret before it is pushed, and every machine that commits here must have it installed.
-- AI reviewers: CodeRabbit (free on this public repo) and Greptile (`effort: base`). Wait for their review before merging.
+- AI reviewers: CodeRabbit (free on this public repo) and Greptile (`effort: base`). Wait for them as `docs/agent-guide.md` section 8 says: CodeRabbit gates, while Greptile does not. If Greptile hasn't reported after 15 minutes, or is out of credits, say so in the PR and carry on.
 
 ## Rules
 

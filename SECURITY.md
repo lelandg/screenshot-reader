@@ -14,5 +14,5 @@ Only the latest release is supported. Fixes are not backported.
 
 ## What we already do
 
-This repository scans for secrets before every commit and in CI, scans dependencies and GitHub Actions for known vulnerabilities on every change and weekly, and keeps dependencies current with Dependabot. The setup is described in [docs/security-setup.md](docs/security-setup.md).
+This repository scans for secrets in CI on every change, and before each commit on machines where its git hooks are installed (see [docs/security-setup.md](docs/security-setup.md)). It also scans dependencies and GitHub Actions for known vulnerabilities on every change and weekly, and keeps dependencies current with Dependabot. The setup is described in [docs/security-setup.md](docs/security-setup.md).
 
