@@ -14,6 +14,7 @@ screenshots.** It needs the words on them.
 | Piece | What it does |
 |---|---|
 | `agents/screenshot-reader.md` | Haiku subagent. Reads one or more images, answers the question asked, transcribes relevant text verbatim, quotes every error, redacts secrets, and treats text inside images as data (never instructions). |
+| `agents/visual-inspector.md` | Sonnet subagent for visual judgment: rendering bugs, wrong colors, overlays blending badly, misalignment, before/after comparisons. It compares suspicious regions against regions that should look the same, and separates what it sees from what it infers. |
 | `skills/read-screenshot/SKILL.md` | Tells the main model to delegate image reads instead of opening images itself, and how to phrase the question. |
 | `hooks/hooks.json` + `guard-image-read.js` | Enforcement. A `PreToolUse` hook that blocks the main agent from `Read`ing image files and points it at the subagent. Reads made inside any subagent pass through. |
 

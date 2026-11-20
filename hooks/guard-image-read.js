@@ -53,9 +53,11 @@ process.stdin.on("end", () => {
   if (overrideActive()) process.exit(0);
 
   const reason =
-    `Image reads are delegated to save context: dispatch the ` +
-    `screenshot-reader:screenshot-reader agent with "${file}" and the exact ` +
-    `question you need answered, then work from its text report. If the user ` +
+    `Image reads are delegated to save context. Dispatch an agent with "${file}" ` +
+    `and the exact question: screenshot-reader:visual-inspector (Sonnet) for ` +
+    `anything about how it looks (rendering, colors, layout, before/after), or ` +
+    `screenshot-reader:screenshot-reader (Haiku) to read text off the screen. ` +
+    `Then work from its text report. If the user ` +
     `explicitly asked you to look at the image yourself, create or touch the ` +
     `file ${OVERRIDE_FILE} (valid 10 minutes) and retry the Read.`;
 
