@@ -1,17 +1,23 @@
 # Free security scans on every PR, every push to the default branch, and weekly
 # on a timer (a timer catches advisories published against code that has not
-# changed).
+# changed). Guide: docs/security-setup.md, step 3.
 #
 # Actions are pinned to commit SHAs, never floating tags: a tag can be moved to
 # malicious code, a SHA cannot. Dependabot (github-actions ecosystem) proposes
 # the bumps. Scanner binaries are installed from checksum-verified release
-# assets at a pinned version (bump V by hand). Trigger is `pull_request`,
-# never `pull_request_target`.
+# assets at a pinned version (bump V by hand). The trigger is `pull_request`,
+# never `pull_request_target`: that one runs with write access and secrets
+# while checking out the PR author's code.
 #
-# Each scanner is its own job so one scanner's failure never prevents another
-# from running. The dependency scanners distinguish FINDINGS (exit 1 / audit
-# results) from SCANNER ERRORS (anything else): both fail the job, with distinct
-# messages so a scanner outage is never mistaken for a clean scan.
+# Each scanner is its own job, so one scanner's failure never stops another
+# from running. The dependency scanners tell FINDINGS apart from SCANNER
+# ERRORS: both fail the job, with distinct messages, so a scanner outage is
+# never mistaken for a clean scan.
+#
+# The npm jobs run only when package-lock.json exists at the repo root, and
+# say so in a notice when it does not. Move or remove that check if your
+# lockfile lives elsewhere. They read the Node version from .nvmrc, and fail
+# with a message saying so when it is missing.
 name: security
 
 on:
@@ -19,7 +25,8 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "17 11 * * 1" # Mondays 06:17 America/Chicago (11:17 UTC)
+    - cron: "17 11 * * 1" # Mondays 11:17 UTC
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,14 +35,15 @@ jobs:
   secrets:
     name: gitleaks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
       - name: Install gitleaks 8.30.1 (checksum-verified release binary)
-        # Download outside the PR-controlled checkout: a PR could commit a
-        # symlink named like a download target and have curl write through it.
+        # Download OUTSIDE the checkout: a PR controls the checkout and could
+        # commit a symlink named like a download target for curl to write through.
         working-directory: ${{ runner.temp }}
         run: |
           set -eu
@@ -47,20 +55,52 @@ jobs:
           tar -xzf "gitleaks_${V}_linux_x64.tar.gz" gitleaks
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
           gitleaks version
-      - name: Drop PR-supplied gitleaks suppressions
+      - name: Use the base branch's gitleaks config and ignores, not the PR's
         if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           set -eu
           # gitleaks reads .gitleaks.toml and .gitleaksignore from the checkout,
           # which on a pull_request is the PR author's tree. A PR could add a
-          # global allowlist and pass the scan with a live secret. This repository
-          # commits neither file, so anything here came from the PR.
-          for f in .gitleaks.toml gitleaks.toml .gitleaksignore; do
-            if [ -e "$f" ]; then
-              echo "::warning title=gitleaks::removing PR-supplied $f before scanning (suppression config is not accepted from a pull request)"
-              rm -f "$f"
+          # global allowlist, or an empty config with no rules, and pass the
+          # scan with a live secret. So the scan uses the BASE branch's copies
+          # (already reviewed and merged), written to a directory OUTSIDE the
+          # checkout and passed by explicit path. Nothing is written through a
+          # checkout path: the PR controls those, and a symlink there would
+          # redirect the write. The checkout's copies are then deleted (rm on a
+          # symlink removes the link, not its target).
+          # A real false positive is suppressed by merging the .gitleaksignore
+          # entry first, in its own reviewed PR. If you add a .gitleaks.toml,
+          # keep it self-contained: an `[extend] path` pointing into the
+          # checkout would read a file the PR controls.
+          T="$RUNNER_TEMP/gitleaks-trusted"
+          mkdir -p "$T"
+          : > "$T/gitleaksignore"
+          ARGS="--gitleaks-ignore-path=$T/gitleaksignore"
+          for f in .gitleaks.toml .gitleaksignore; do
+            # Accept only a regular file in the base tree, never a symlink.
+            mode=$(git ls-tree "$BASE" -- "$f" | cut -d' ' -f1)
+            base_blob=""
+            case "$mode" in
+              100644|100755) base_blob=$(git rev-parse "${BASE}:${f}") ;;
+            esac
+            head_blob=$(git rev-parse -q --verify "HEAD:${f}" 2>/dev/null || true)
+            if [ "$head_blob" != "$base_blob" ]; then
+              echo "::warning title=gitleaks::this PR changes $f; scanning with the base branch's copy instead (suppressions are not accepted from a pull request)"
             fi
+            if [ -n "$base_blob" ]; then
+              case "$f" in
+                .gitleaks.toml)
+                  git cat-file blob "$base_blob" > "$T/gitleaks.toml"
+                  ARGS="$ARGS --config=$T/gitleaks.toml" ;;
+                .gitleaksignore)
+                  git cat-file blob "$base_blob" > "$T/gitleaksignore" ;;
+              esac
+            fi
+            rm -rf -- "$f"
           done
+          echo "GITLEAKS_TRUSTED_ARGS=$ARGS" >> "$GITHUB_ENV"
       - name: Scan the commits this event introduced (full history on the timer)
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
@@ -73,17 +113,22 @@ jobs:
           # (--full-history --all --diff-filter=tuxdb). Neither its default nor
           # a custom value passes --diff-merges, so `git log -p` omits
           # merge-commit patches: a secret added while resolving a merge
-          # conflict went unscanned. Every path below therefore asks for
+          # conflict would go unscanned. Every path below therefore asks for
           # first-parent merge diffs, and the full-history paths restate the
-          # defaults rather than losing them.
-          # --text is LOAD-BEARING, not cosmetic. Without it a PR can add
-          # `path -diff` to .gitattributes, git emits "Binary files differ"
-          # instead of the patch, and gitleaks scans nothing while reporting
-          # "no leaks found". Measured: 22 bytes scanned and a clean pass,
-          # versus 77 bytes and "leaks found: 1" with --text. Deleting
-          # .gitleaks.toml does NOT close this path. Do not remove --text.
+          # defaults rather than losing them, with one deliberate change: no `t`.
+          # In --diff-filter a LOWERCASE letter EXCLUDES that change type, so
+          # gitleaks' default `tuxdb` skips type changes. A symlink replaced by a
+          # regular file holding a secret is a type change (T), and the full
+          # scan never read it. Measured with gitleaks 8.30.1: `tuxdb` reported
+          # "no leaks found" on such a commit, `uxdb` reported the leaks. The
+          # pull_request and push ranges pass no --diff-filter, so git's
+          # default already includes T there.
+          # --text is LOAD-BEARING. Without it a PR can add `path -diff` to
+          # .gitattributes, git prints "Binary files differ" instead of the
+          # patch, and gitleaks scans nothing while reporting "no leaks found".
+          # Do not remove --text.
           DIFFOPTS="--diff-merges=first-parent --text"
-          FULL="--full-history --all --diff-filter=tuxdb $DIFFOPTS"
+          FULL="--full-history --all --diff-filter=uxdb $DIFFOPTS"
           case "$GITHUB_EVENT_NAME" in
             pull_request) OPTS="$BASE..$HEAD $DIFFOPTS" ;;
             push)
@@ -94,10 +139,8 @@ jobs:
                 *)
                   # A force-push can leave $BEFORE unreachable even at
                   # fetch-depth 0. Passing it to gitleaks then FAILS the job
-                  # instead of scanning, so fall back to a FULL scan. An
-                  # earlier revision fell back to `-n 50`, which let a
-                  # force-push of more than 50 commits leave the older ones
-                  # unscanned while the job reported success.
+                  # instead of scanning, so fall back to a FULL scan rather
+                  # than a recent slice that could skip older commits.
                   if git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
                     OPTS="$BEFORE..$GITHUB_SHA $DIFFOPTS"
                   else
@@ -108,19 +151,22 @@ jobs:
             *) OPTS="$FULL" ;;
           esac
           # --ignore-gitleaks-allow: a `gitleaks:allow` comment in a PR must not
-          # be able to suppress a finding.
-          gitleaks git --redact --no-banner -v --ignore-gitleaks-allow --log-opts="$OPTS"
+          # be able to suppress a finding. GITLEAKS_TRUSTED_ARGS (pull requests
+          # only) points gitleaks at the base branch's config and ignore file.
+          # shellcheck disable=SC2086  # deliberate: space-separated flag list
+          gitleaks git --redact --no-banner -v --ignore-gitleaks-allow ${GITLEAKS_TRUSTED_ARGS:-} --log-opts="$OPTS"
 
   osv-scanner:
     name: osv-scanner
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install osv-scanner 2.7.0 (checksum-verified release binary)
-        # Download outside the PR-controlled checkout: a PR could commit a
-        # symlink named like a download target and have curl write through it.
+        # Download OUTSIDE the checkout: a PR controls the checkout and could
+        # commit a symlink named like a download target for curl to write through.
         working-directory: ${{ runner.temp }}
         run: |
           set -eu
@@ -135,20 +181,59 @@ jobs:
         run: |
           set -eu
           # osv-scanner loads an osv-scanner.toml found beside any scanned
-          # manifest or workflow. A pull request controls this checkout, so it
-          # could add [[PackageOverrides]] ignore = true or [[IgnoredVulns]]
-          # and hide a vulnerable dependency while the job still reports
-          # clean. Same rule as the gitleaks job: suppression config is not
-          # accepted from a pull request. The scan below passes --config with
-          # this empty file outside the checkout, and --config replaces the
-          # per-directory lookup, so no osv-scanner.toml in the checkout is
-          # read. Nothing is deleted from the checkout: a find | read loop
-          # splits a path that contains a newline, and could remove a real
-          # manifest before the scan.
+          # manifest. A pull request controls this checkout, so it could add
+          # [[PackageOverrides]] ignore = true or [[IgnoredVulns]] and hide a
+          # vulnerable dependency while the job still reports clean. Same rule
+          # as the gitleaks job: suppressions are not accepted from a pull
+          # request. --config with this empty file, outside the checkout,
+          # replaces the per-directory lookup, so no osv-scanner.toml in the
+          # checkout is read. If you need a reviewed ignore, put it here.
           : > "$RUNNER_TEMP/osv-scanner-trusted.toml"
+      # osv-scanner 2.7.0 does not read pyproject.toml. A Python project whose
+      # dependencies live only there would get a green scan with zero Python
+      # packages checked. So copy its declared dependencies into a requirements
+      # file OUTSIDE the checkout, which the scan below adds with -L and
+      # resolves transitively. Root pyproject.toml only; change the path if
+      # yours is elsewhere. Known limit: a spec with an upper bound
+      # (`pkg>=3.1,<3.3`) may be reported as unscannable rather than resolved.
+      - name: List pyproject.toml dependencies for the scan
+        run: |
+          set -eu
+          if [ ! -f pyproject.toml ]; then
+            echo "no pyproject.toml at the repo root; nothing to list"
+            exit 0
+          fi
+          # -I (isolated mode): the working directory is the PR's checkout, and
+          # without it a PR-added tomllib.py would be imported in place of the
+          # standard library and could hide dependencies from the scan.
+          python3 -I - "$RUNNER_TEMP/pyproject-requirements.txt" <<'PY'
+          import sys, tomllib
+          with open("pyproject.toml", "rb") as fh:
+              data = tomllib.load(fh)
+          project = data.get("project", {})
+          deps = list(project.get("dependencies", []))
+          for extra in project.get("optional-dependencies", {}).values():
+              deps += extra
+          for group in data.get("dependency-groups", {}).values():
+              deps += [d for d in group if isinstance(d, str)]
+          if not deps:
+              print("::warning title=osv-scanner::pyproject.toml declares no static dependencies "
+                    "(dynamic ones are not read); its Python packages are not scanned")
+          with open(sys.argv[1], "w", encoding="utf-8") as out:
+              out.write("".join(d + "\n" for d in deps))
+          print(f"{len(deps)} pyproject.toml dependencies listed for the scan")
+          PY
       # osv-scanner exit codes: 0 clean, 1 vulnerabilities found, anything else
       # is a scanner error (bad flag, no packages found, network) and must never
       # look like a findings result.
+      #
+      # Known limit of the transitive resolver (requirements.txt and the
+      # pyproject.toml list above are resolved through deps.dev): it can fail
+      # on a fully pinned closure that includes Windows-only packages
+      # (seen: `pywin32 311.0.0 not found`, a scanner error), and it can pick
+      # stale versions for unpinned specs. If your repo hits that, add
+      # --no-resolve to scan only the versions you declare, and say why in a
+      # comment. EdgeMesh does this, to be revisited by 2026-12-11.
       - name: osv-scanner over every lockfile and manifest
         run: |
           set -u
@@ -165,8 +250,14 @@ jobs:
           # zizmor job below is the actions advisory check.
           # --no-ignore: a pull request can add .gitignore rules that hide
           # tracked manifests or workflows from a recursive scan.
+          # -L adds the pyproject.toml dependencies listed by the step above.
+          extra=()
+          if [ -s "$RUNNER_TEMP/pyproject-requirements.txt" ]; then
+            extra=(-L "requirements.txt:$RUNNER_TEMP/pyproject-requirements.txt")
+          fi
           osv-scanner scan source --recursive --no-ignore \
             --config "$RUNNER_TEMP/osv-scanner-trusted.toml" ./ \
+            "${extra[@]}" \
             --x-plugins lockfile --x-plugins sbom --x-plugins directory \
             --x-plugins github/actions || rc=$?
           case "$rc" in
@@ -651,6 +742,10 @@ jobs:
                   except urllib.error.HTTPError as exc:
                       if missing_ok and exc.code in (404, 451):
                           return MISSING, None
+                      # Say so when the token's hourly quota is gone, so that is
+                      # not mistaken for an advisory-API outage. The check still fails.
+                      if exc.code in (403, 429) and exc.headers.get("X-RateLimit-Remaining") == "0":
+                          fail(f"GET {url} exhausted the GITHUB_TOKEN rate limit (resets at epoch {exc.headers.get('X-RateLimit-Reset')}); not an advisory result")
                       if exc.code not in (500, 502, 503, 504) or attempt == 3:
                           fail(f"GET {url} returned HTTP {exc.code}")
                   except (urllib.error.URLError, OSError, http.client.IncompleteRead) as exc:
@@ -790,3 +885,326 @@ jobs:
                 f"{len(pins)} pins, {len(unchecked)} without a release version, {len(hits)} findings")
           sys.exit(1 if hits or unchecked else 0)
           PY
+
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Depth 2: on a pull_request the checkout is a merge commit whose
+          # first parent (HEAD^1) is the base branch, used below.
+          fetch-depth: 2
+      # Both of npm's lockfile names count, and removing the lockfile is not a
+      # way to skip the check: if the base branch has one at the root and the
+      # PR does not, the job fails instead of skipping.
+      - name: Find the npm lockfile
+        id: lock
+        run: |
+          set -eu
+          for f in package-lock.json npm-shrinkwrap.json; do
+            if [ -f "$f" ] && [ ! -L "$f" ]; then
+              echo "present=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            for f in package-lock.json npm-shrinkwrap.json; do
+              if git cat-file -e "HEAD^1:$f" 2>/dev/null; then
+                echo "::error title=npm audit::the base branch has $f at the repo root and this PR removes or replaces it; the npm checks cannot be skipped that way"
+                exit 1
+              fi
+            done
+          fi
+          echo "::notice title=npm audit::no package-lock.json or npm-shrinkwrap.json at the repo root; skipped"
+          echo "present=false" >> "$GITHUB_OUTPUT"
+      # A pull request controls the project .npmrc, and npm settings decide
+      # what the audit covers (`omit=dev` hides dev dependencies, `registry=`
+      # picks who answers). So on a PR, npm runs with the BASE branch's
+      # .npmrc. The PR's copy is deleted first (rm removes a symlink, not its
+      # target), so the write below cannot be redirected.
+      - name: Use the base branch's .npmrc
+        if: steps.lock.outputs.present == 'true' && github.event_name == 'pull_request'
+        run: |
+          set -eu
+          if ! git diff --quiet HEAD^1 HEAD -- .npmrc; then
+            echo "::warning title=npm audit::this PR changes .npmrc; auditing with the base branch's copy"
+          fi
+          rm -rf -- .npmrc
+          mode=$(git ls-tree HEAD^1 -- .npmrc | cut -d' ' -f1)
+          case "$mode" in
+            100644|100755) git cat-file blob "HEAD^1:.npmrc" > .npmrc ;;
+          esac
+      # setup-node reads the Node version from .nvmrc and, without one, fails
+      # with an error that does not say what is missing.
+      - name: Check for .nvmrc
+        if: steps.lock.outputs.present == 'true'
+        run: |
+          if [ ! -f .nvmrc ]; then
+            echo "::error file=.nvmrc,title=npm audit::.nvmrc is missing at the repo root. The npm jobs read the Node version from it; commit one with an LTS major, e.g. 'echo 24 > .nvmrc'"
+            exit 1
+          fi
+      - if: steps.lock.outputs.present == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # npm audit reads the lockfile; no install, so no lifecycle scripts run.
+      # The --include flags audit every dependency type whatever the config
+      # says. npm's exit code is ignored on purpose: the JSON decides.
+      # Exit 1 means findings and nothing else. Every scanner error exits 2
+      # with a message that says so: output that is empty or not JSON, or a
+      # result without metadata (a registry or network failure). Neither is
+      # a clean scan.
+      - name: npm audit (high+), findings vs scanner error
+        if: steps.lock.outputs.present == 'true'
+        run: |
+          set -u
+          npm_rc=0
+          npm audit --audit-level=high --include=dev --include=optional --include=peer --json > "$RUNNER_TEMP/audit.json" || npm_rc=$?
+          # shellcheck disable=SC2016  # the single-quoted body is JavaScript, not shell
+          AUDIT_JSON="$RUNNER_TEMP/audit.json" NPM_RC="$npm_rc" node -e '
+            const fs = require("fs");
+            const raw = fs.readFileSync(process.env.AUDIT_JSON, "utf8");
+            let d;
+            try {
+              d = JSON.parse(raw);
+            } catch (e) {
+              console.log(`::error title=npm audit::scanner error: npm audit (exit ${process.env.NPM_RC}) wrote ${raw.trim() ? "output that is not JSON" : "no output"}; not a findings result`);
+              if (raw.trim()) console.log(raw.slice(0, 400));
+              process.exit(2);
+            }
+            if (!d || typeof d !== "object" || !d.metadata || !d.metadata.vulnerabilities) {
+              console.log(`::error title=npm audit::scanner error: no audit result (registry or network failure, npm exit ${process.env.NPM_RC}); not a findings result`);
+              console.log(JSON.stringify(d).slice(0, 400));
+              process.exit(2);
+            }
+            const v = d.metadata.vulnerabilities;
+            console.log("npm audit:", JSON.stringify(v));
+            const n = (v.high || 0) + (v.critical || 0);
+            if (n === 0) process.exit(0);
+            console.log(`::error title=npm audit::${n} high/critical findings (critical ${v.critical || 0}, high ${v.high || 0})`);
+            process.exit(1);
+          '
+
+  npm-signatures:
+    name: npm audit signatures
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      # Same lockfile and .npmrc handling as the npm audit job, for the same
+      # reasons; see the comments there.
+      - name: Find the npm lockfile
+        id: lock
+        run: |
+          set -eu
+          for f in package-lock.json npm-shrinkwrap.json; do
+            if [ -f "$f" ] && [ ! -L "$f" ]; then
+              echo "present=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            for f in package-lock.json npm-shrinkwrap.json; do
+              if git cat-file -e "HEAD^1:$f" 2>/dev/null; then
+                echo "::error title=npm audit signatures::the base branch has $f at the repo root and this PR removes or replaces it; the npm checks cannot be skipped that way"
+                exit 1
+              fi
+            done
+          fi
+          echo "::notice title=npm audit signatures::no package-lock.json or npm-shrinkwrap.json at the repo root; skipped"
+          echo "present=false" >> "$GITHUB_OUTPUT"
+      - name: Use the base branch's .npmrc
+        if: steps.lock.outputs.present == 'true' && github.event_name == 'pull_request'
+        run: |
+          set -eu
+          if ! git diff --quiet HEAD^1 HEAD -- .npmrc; then
+            echo "::warning title=npm audit signatures::this PR changes .npmrc; installing with the base branch's copy"
+          fi
+          rm -rf -- .npmrc
+          mode=$(git ls-tree HEAD^1 -- .npmrc | cut -d' ' -f1)
+          case "$mode" in
+            100644|100755) git cat-file blob "HEAD^1:.npmrc" > .npmrc ;;
+          esac
+      - name: Check for .nvmrc
+        if: steps.lock.outputs.present == 'true'
+        run: |
+          if [ ! -f .nvmrc ]; then
+            echo "::error file=.nvmrc,title=npm audit signatures::.nvmrc is missing at the repo root. The npm jobs read the Node version from it; commit one with an LTS major, e.g. 'echo 24 > .nvmrc'"
+            exit 1
+          fi
+      - if: steps.lock.outputs.present == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # --ignore-scripts: install scripts are the supply-chain attack surface,
+      # and a signature check does not need them to run. --include: install
+      # every dependency type, so every one is checked.
+      - if: steps.lock.outputs.present == 'true'
+        run: npm ci --ignore-scripts --include=dev --include=optional --include=peer
+      # What this does NOT cover: npm verifies signatures only for packages
+      # that came from a registry. A dependency installed from a git URL, a
+      # tarball URL or a local path has no registry signature and is skipped
+      # silently. The next step lists those, so they are at least visible.
+      - name: Registry packages have verified signatures
+        if: steps.lock.outputs.present == 'true'
+        # --include: verify every installed dependency type, whatever `omit`
+        # the trusted .npmrc sets (the listing below assumes all are checked).
+        # The registry sometimes answers the signing-key lookup without the key
+        # an attestation names (EMISSINGSIGNATUREKEY), on a different package
+        # each run, lockfile unchanged. Only that error is retried: up to 3
+        # attempts 15 s apart, the later ones with --prefer-online so a cached
+        # key list is not reused. Any other failure, including an invalid
+        # signature, fails on the first attempt.
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/npm-audit-signatures.log"
+          for attempt in 1 2 3; do
+            flags=()
+            [ "$attempt" -gt 1 ] && flags=(--prefer-online)
+            if npm audit signatures --include=dev --include=optional --include=peer "${flags[@]}" 2>&1 | tee "$log"; then
+              exit 0
+            fi
+            if ! grep -q 'EMISSINGSIGNATUREKEY' "$log" || [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "::warning title=npm audit signatures::attempt $attempt: registry returned no key for an attestation (EMISSINGSIGNATUREKEY); retrying"
+            sleep 15
+          done
+      # A locked dependency counts as covered only when it resolves to a .tgz
+      # under the configured registry (registry.npmjs.org unless the trusted
+      # .npmrc says otherwise) and has an integrity hash. Any other https host
+      # is a tarball URL, not the registry, and is listed. The list needs the
+      # lockfile's `packages` map (lockfileVersion 2 or 3): a v1 lockfile has
+      # none, and the step fails rather than report nothing as "covered".
+      # `npm audit signatures` checks the installed tree only, so a registry
+      # entry npm ci did not install on this runner (an optional package for
+      # another platform) is reported as not checked, not as covered. npm also
+      # skips a package whose dependents declare it ONLY as a URL, git or file spec
+      # (even a URL on the registry), so those are listed as not covered.
+      - name: List dependencies that signatures do not cover
+        if: steps.lock.outputs.present == 'true'
+        run: |
+          set -eu
+          REGISTRY="$(npm config get registry)"
+          NPM_DIR="$(npm root -g)/npm"
+          export REGISTRY NPM_DIR
+          # shellcheck disable=SC2016  # the single-quoted body is JavaScript, not shell
+          node -e '
+            const fs = require("fs");
+            const T = "npm audit signatures";
+            const f = fs.existsSync("npm-shrinkwrap.json") ? "npm-shrinkwrap.json" : "package-lock.json";
+            let reg;
+            try {
+              reg = new URL(process.env.REGISTRY || "");
+            } catch (e) {
+              console.log(`::error title=${T}::cannot read the configured npm registry (${JSON.stringify(process.env.REGISTRY)}); not a coverage result`);
+              process.exit(2);
+            }
+            if (reg.protocol !== "https:") {
+              console.log(`::error title=${T}::the configured npm registry ${reg.href} is not https`);
+              process.exit(1);
+            }
+            const prefix = reg.origin + (reg.pathname.endsWith("/") ? reg.pathname : reg.pathname + "/");
+            let lock;
+            try {
+              lock = JSON.parse(fs.readFileSync(f, "utf8"));
+            } catch (e) {
+              console.log(`::error file=${f},title=${T}::${f} is not valid JSON (${e.message}); not a coverage result`);
+              process.exit(2);
+            }
+            const pkgs = lock && lock.packages;
+            if (!pkgs || typeof pkgs !== "object" || Array.isArray(pkgs)) {
+              console.log(`::error file=${f},title=${T}::${f} has no "packages" map (lockfileVersion ${lock && lock.lockfileVersion}), so the dependencies outside signature coverage cannot be listed. Regenerate it with npm 7 or later: npm install --package-lock-only`);
+              process.exit(1);
+            }
+            // Workflow-command escaping: paths and URLs come from the lockfile, which a PR controls.
+            // (No apostrophes in this script: it is one single-quoted shell argument.)
+            const esc = (s) => String(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+            // Which installed packages did npm audit signatures verify? Rather
+            // than re-derive it from the lockfile (overrides, field precedence,
+            // workspaces and optional platform packages all change the answer),
+            // ask the same code npm uses: load the installed tree with the
+            // Arborist and npm-package-arg bundled in this npm, and apply the
+            // edge filter from npm lib/utils/verify-signatures.js (a valid spec,
+            // an installed version, not a workspace, and spec.registry).
+            (async () => {
+              let Arborist, npa;
+              try {
+                Arborist = require(process.env.NPM_DIR + "/node_modules/@npmcli/arborist");
+                npa = require(process.env.NPM_DIR + "/node_modules/npm-package-arg");
+              } catch (e) {
+                console.log(`::error title=${T}::cannot load the Arborist bundled with npm from ${esc(process.env.NPM_DIR)} (${esc(e.message)}); not a coverage result`);
+                process.exit(2);
+              }
+              let tree;
+              try {
+                tree = await new Arborist({ path: process.cwd() }).loadActual();
+              } catch (e) {
+                console.log(`::error title=${T}::cannot load the installed tree (${esc(e.message)}); not a coverage result`);
+                process.exit(2);
+              }
+              const specOf = (edge) => {
+                let name = edge.name;
+                try { name = npa(edge.spec).subSpec.name; } catch (e) { /* keep edge.name */ }
+                try { return npa(`${name}@${edge.spec}`); } catch (e) { return null; }
+              };
+              // Locations as lockfile keys (forward slashes on every OS).
+              const loc = (node) => node.location.split(String.fromCharCode(92)).join("/");
+              const inv = new Map([...tree.inventory.values()].map((node) => [loc(node), node]));
+              const verified = new Set();
+              for (const node of tree.inventory.values()) {
+                for (const edge of node.edgesOut.values()) {
+                  const to = edge.to;
+                  const spec = specOf(edge);
+                  if (!to || !spec || !spec.registry || to.isWorkspace || !(to.package || {}).version) continue;
+                  verified.add(loc(to));
+                }
+              }
+              let n = 0, covered = 0, notVerified = 0;
+              const absent = [];
+              for (const [path, p] of Object.entries(pkgs)) {
+                // Skip the root, links, and workspace packages (entries outside
+                // node_modules): those are source code of this repository.
+                if (!path || !p || p.link || !path.includes("node_modules/")) continue;
+                const r = p.resolved || "";
+                let ok = false;
+                try {
+                  const u = new URL(r);
+                  ok = u.protocol === "https:" && (u.origin + u.pathname).startsWith(prefix) && u.pathname.endsWith(".tgz");
+                } catch (e) { ok = false; }
+                if (!ok || !p.integrity) {
+                  // Counted as not covered only when installed here; an absent
+                  // one still gets the warning but is counted as not checked.
+                  if (inv.has(path)) n++; else absent.push(path);
+                  console.log(`::warning title=${T}::${esc(path)} does not come from the registry ${esc(prefix)} with an integrity hash (${esc(r || "no resolved URL")}); its signature is not verified`);
+                } else if (!inv.has(path)) {
+                  // npm audit signatures checks the INSTALLED tree only, so a
+                  // registry entry that npm ci did not install here (an optional
+                  // package for another platform) was not verified on this runner.
+                  absent.push(path);
+                } else if (!verified.has(path)) {
+                  notVerified++;
+                  const specs = [...inv.get(path).edgesIn].map((e) => e.spec);
+                  console.log(`::warning title=${T}::${esc(path)} is not reached through a registry spec (its dependents declare: ${esc(specs.join(", ") || "nothing")}), so npm audit signatures does not verify it`);
+                } else {
+                  covered++;
+                }
+              }
+              if (absent.length) {
+                const shown = absent.slice(0, 10).map(esc).join(", ");
+                console.log(`::notice title=${T}::${absent.length} dependencies in the lockfile were not installed on this runner (usually optional packages for another platform), so their signatures were not verified here: ${shown}${absent.length > 10 ? ", ..." : ""}`);
+              }
+              console.log(`${covered} installed registry dependencies covered by the signature check above; ${n} not from the registry ${prefix} or missing an integrity hash (not covered); ${notVerified} not reached through a registry spec (not covered); ${absent.length} not installed here (not checked)`);
+            })().catch((e) => {
+              console.log(`::error title=${T}::coverage listing failed (${esc(e && e.message)}); not a coverage result`);
+              process.exit(2);
+            });
+          '
