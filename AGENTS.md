@@ -4,9 +4,11 @@ The canonical guide for AI coding agents in this repo. `CLAUDE.md` imports it.
 
 ## What this is
 
-A Claude Code plugin. A Haiku subagent (`agents/screenshot-reader.md`) reads
-images for the main model and returns exact text. A skill
-(`skills/read-screenshot/SKILL.md`) tells the main model to delegate. A
+A Claude Code plugin. A subagent (`agents/screenshot-reader.md`) reads images
+for the main model and returns exact text. It runs on Haiku by default; the
+skill (`skills/read-screenshot/SKILL.md`) tells the main model to delegate and
+to override the model to Sonnet for visual-judgment questions (rendering,
+color, layout). A
 `PreToolUse` hook (`hooks/guard-image-read.js`) blocks main-thread image
 reads. `bench/bench.py` measures the token effect.
 
