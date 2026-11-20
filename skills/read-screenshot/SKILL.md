@@ -15,8 +15,10 @@ and hand you exact text instead. So: **do not Read image files yourself.**
    screenshot" (singular), use the newest image by modified time in the folder
    they mean (`_screenshots`, the project's screenshot folder, or the path they
    gave).
-2. Dispatch the `screenshot-reader` agent (from this plugin it is
-   `screenshot-reader:screenshot-reader`) with the Agent tool. In the prompt:
+2. Dispatch the right agent with the Agent tool (see "Pick the agent by the
+   question" below): `screenshot-reader:visual-inspector` for anything about
+   how it looks, `screenshot-reader:screenshot-reader` for reading text. In the
+   prompt:
    - the absolute path(s), one per line;
    - the exact question you need answered ("what is the full error text and
      which file/line does the stack trace point to?", "is the Save button
