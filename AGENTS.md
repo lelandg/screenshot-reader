@@ -43,8 +43,8 @@ along with a manifest check and an LF check. `security.yml` and
 
 ## Rules
 
-- **Every change reaches `main` through a PR**, so CodeRabbit reviews it,
-  docs included: the ruleset blocks direct pushes, and agents don't bypass it.
+- **Every change reaches `main` through a PR**, so CodeRabbit can review it
+  (its skips are in the reviewer bullet above), docs included: the ruleset blocks direct pushes, and agents don't bypass it.
 - `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` carry the
   same `version`. CI fails if they differ. The version is bumped when a PR
   lands, never by hand in a PR.
