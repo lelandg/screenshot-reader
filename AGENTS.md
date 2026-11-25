@@ -33,7 +33,7 @@ along with a manifest check and an LF check. `security.yml` and
 - How the setup works, and why: `docs/security-setup.md`. Read it before changing `Scripts/githooks/`, `.github/`, `.npmrc`, `.coderabbit.yaml` or `.greptile/config.json`.
 - Repository settings, when a PR may merge, and how to handle each kind of finding: `docs/agent-guide.md`.
 - Never commit secrets. Keep them in a gitignored `.env` file and commit an `.env.example` with placeholders.
-- Never use `--no-verify` (on `git commit`, `git merge` or `git am`): it skips the secret scan. Never set `GITLEAKS_DEGRADED_OK=1` without telling the human why (it passes one degraded scan, never a finding).
+- Never use `--no-verify` (on `git commit`, `git merge` or `git am`): it skips the hooks. On `git commit` that is the gitleaks secret scan; the `pre-merge-commit` and `pre-applypatch` hooks in `Scripts/githooks/` only chain to a repo-local hook, so a merge commit or `git am` is not scanned locally either way, and CI's gitleaks job is what covers those. Never set `GITLEAKS_DEGRADED_OK=1` without telling the human why (it passes one degraded scan, never a finding).
 - Never add a suppression (`.gitleaksignore` entry, `gitleaks:allow` comment, osv-scanner ignore, `.snyk` ignore) to make a check pass. Report the finding instead.
 - Never use the `pull_request_target` trigger. Pin every action to a full commit SHA.
 - When a vulnerability with a fixed version is reported, apply the lowest version that fixes it, even if that version is newer than the 7-day package-age floor.
